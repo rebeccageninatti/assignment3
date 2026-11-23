@@ -14,268 +14,184 @@
 
 package com.cronutils.parser;
 
-import com.cronutils.StringValidations;
 import com.cronutils.model.field.constraint.FieldConstraints;
-import com.cronutils.model.field.expression.*;
+import com.cronutils.model.field.expression.And;
+import com.cronutils.model.field.expression.Between;
+import com.cronutils.model.field.expression.Every;
+import com.cronutils.model.field.expression.FieldExpression;
+import com.cronutils.model.field.expression.On;
 import com.cronutils.model.field.value.FieldValue;
 import com.cronutils.model.field.value.IntegerFieldValue;
-import com.cronutils.model.field.value.SpecialChar;
-import com.cronutils.model.field.value.SpecialCharFieldValue;
 import com.cronutils.utils.Preconditions;
-import com.cronutils.utils.RandomUtils;
 import com.cronutils.utils.StringUtils;
 import com.cronutils.utils.VisibleForTesting;
 
-import java.util.regex.Pattern;
-
 import static com.cronutils.model.field.expression.FieldExpression.always;
 import static com.cronutils.model.field.expression.FieldExpression.questionMark;
-import static com.cronutils.model.field.value.SpecialChar.*;
+import static com.cronutils.model.field.value.SpecialChar.QUESTION_MARK;
 
 /**
  * Parses a field from a cron expression.
  */
 public class FieldParser {
     private static final String SLASH = "/";
-    private static final String W_STRING = "W";
-    private static final String EMPTY_STRING = "";
-    private static final String LW_STRING = "LW";
-    private static final String HASH_TAG = "#";
+    private static final String DASH = "-";
+    private static final String COMMA = ",";
     private static final String L_STRING = "L";
     private static final String QUESTION_MARK_STRING = "?";
     private static final String ASTERISK = "*";
-    private static final char[] SPECIAL_CHARS_MINUS_STAR = new char[] { '/', '-', ',' };// universally supported
-    private static final String TILDE = "~";
-
-    private static final Pattern L_PATTERN = Pattern.compile("[0-9]L", Pattern.CASE_INSENSITIVE);
-    private static final Pattern RANDOM_PATTERN = Pattern.compile("~|[0-9]*~[0-9]*(/[0-9]+)?", Pattern.CASE_INSENSITIVE);
-    private static final Pattern W_PATTERN = Pattern.compile("[0-9]W", Pattern.CASE_INSENSITIVE);
     private static final String ASTERISK_ALWAYS_VALUE = "1";
+    private static final char[] STRUCTURAL_DELIMITERS = new char[] { '/', '-', ',' };
 
     private final FieldConstraints fieldConstraints;
+    private final FieldValueMapper valueMapper;
+    private final OnFieldExpressionParser onParser;
 
     public FieldParser(final FieldConstraints constraints) {
         fieldConstraints = Preconditions.checkNotNull(constraints, "FieldConstraints must not be null");
+        valueMapper = new FieldValueMapper(fieldConstraints);
+        onParser = new OnFieldExpressionParser(fieldConstraints, valueMapper);
     }
 
     /**
      * Parse given expression for a single cron field.
      *
      * @param expression - String
-     * @return CronFieldExpression object that with interpretation of given String parameter
+     * @return CronFieldExpression object with interpretation of given String parameter
      */
     public FieldExpression parse(final String expression) {
-        if (!StringUtils.containsAny(expression, SPECIAL_CHARS_MINUS_STAR)) {
-            if (expression.contains(QUESTION_MARK_STRING) && !fieldConstraints.getSpecialChars().contains(QUESTION_MARK)) {
-                throw new IllegalArgumentException("Invalid expression: " + expression);
-            }
-
-            return noSpecialCharsNorStar(expression);
-        } else {
-            if (RANDOM_PATTERN.matcher(expression).matches()) {
-                return parseRandom(expression);
-            }
-            final String[] array = expression.split(",");
-            if (array.length > 1) {
-                return commaSplitResult(array);
-            } else {
-                final String[] splitted = expression.split("-");
-                if (expression.contains("-") && splitted.length != 2) {
-                    throw new IllegalArgumentException("Missing values for range: " + expression);
-                }
-                return splitted[0].equalsIgnoreCase(L_STRING)
-                        ? parseOnWithL(splitted[0], mapToIntegerFieldValue(splitted[1]))
-                        : dashSplitResult(expression, splitted);
-            }
+        if (!StringUtils.containsAny(expression, STRUCTURAL_DELIMITERS)) {
+            return parseSingleToken(expression);
         }
+        return parseCompositeExpression(expression);
     }
 
-    private FieldExpression dashSplitResult(final String expression, final String[] betweenArray) {
-        if (betweenArray.length > 1) {
-            return parseBetween(betweenArray);
-        } else {
-            return slashSplit(expression, expression.split(SLASH));
+    private FieldExpression parseSingleToken(final String expression) {
+        if (expression.contains(QUESTION_MARK_STRING) && !fieldConstraints.getSpecialChars().contains(QUESTION_MARK)) {
+            throw new IllegalArgumentException("Invalid expression: " + expression);
         }
+        if (ASTERISK.equals(expression)) {
+            return always();
+        }
+        if (QUESTION_MARK_STRING.equals(expression)) {
+            return questionMark();
+        }
+        return onParser.parseOn(expression);
     }
 
-    private FieldExpression parseRandom(String expression) {
-        RandomUtils randomUtils = new RandomUtils();
-        if (TILDE.equals(expression)) {
-            return new RandomExpression(randomUtils);
+    private FieldExpression parseCompositeExpression(final String expression) {
+        if (RandomFieldExpressionParser.matches(expression)) {
+            return RandomFieldExpressionParser.parse(expression);
         }
-        String[] parts = expression.split(TILDE, -1);
-        if (parts.length < 2) {
-            return new RandomExpression(randomUtils);
+        final String[] commaParts = expression.split(COMMA);
+        if (commaParts.length > 1) {
+            return parseCommaList(commaParts);
         }
-        Integer from = parts[0].isEmpty() ? null : Integer.parseInt(parts[0]);
-        String toAndStep = parts[1];
-        Integer to = null;
-        Integer step = null;
-        if (toAndStep.contains(SLASH)) {
-            String[] toStepParts = toAndStep.split(SLASH);
-            if (!toStepParts[0].isEmpty()) {
-                to = Integer.parseInt(toStepParts[0]);
-            }
-            step = Integer.parseInt(toStepParts[1]);
-        } else if (!toAndStep.isEmpty()) {
-            to = Integer.parseInt(toAndStep);
-        }
-        return new RandomExpression(from, to, step, randomUtils);
+        return parseDashOrSlash(expression);
     }
 
-    private FieldExpression commaSplitResult(final String[] array) {
+    private FieldExpression parseCommaList(final String[] parts) {
         final And and = new And();
-        for (final String exp : array) {
-            and.and(parse(exp));
+        for (final String part : parts) {
+            and.and(parse(part));
         }
         return and;
     }
 
-    private FieldExpression slashSplit(final String expression, final String[] values) {
+    private FieldExpression parseDashOrSlash(final String expression) {
+        final String[] dashParts = expression.split(DASH);
+        if (expression.contains(DASH) && dashParts.length != 2) {
+            throw new IllegalArgumentException("Missing values for range: " + expression);
+        }
+        if (dashParts[0].equalsIgnoreCase(L_STRING)) {
+            return parseOnWithL(dashParts[0], mapToIntegerFieldValue(dashParts[1]));
+        }
+        if (dashParts.length > 1) {
+            return parseBetween(dashParts);
+        }
+        return parseSlashStep(expression);
+    }
+
+    private FieldExpression parseSlashStep(final String expression) {
+        final String[] values = expression.split(SLASH);
         if (values.length == 2) {
-            final String start = values[0];
-            final String value = values[1];
-            return asteriskOrempty(start, value);
-        } else if (values.length == 1) {
+            return parseStepFromStart(values[0], values[1]);
+        }
+        if (values.length == 1) {
             throw new IllegalArgumentException("Missing steps for expression: " + expression);
-        } else {
-            throw new IllegalArgumentException("Invalid expression: " + expression);
         }
+        throw new IllegalArgumentException("Invalid expression: " + expression);
     }
 
-    private FieldExpression asteriskOrempty(final String start, final String value) {
+    private FieldExpression parseStepFromStart(final String start, final String step) {
         final String trimmedStart = start.trim();
-        if (ASTERISK.equals(trimmedStart) && value.equals(ASTERISK_ALWAYS_VALUE)) {
-            return noSpecialCharsNorStar(start);
+        if (ASTERISK.equals(trimmedStart) && ASTERISK_ALWAYS_VALUE.equals(step)) {
+            return parseSingleToken(start);
         }
+        final IntegerFieldValue period = new IntegerFieldValue(Integer.parseInt(step));
         if (ASTERISK.equals(trimmedStart)) {
-            return new Every(new IntegerFieldValue(Integer.parseInt(value)));
-        } else {
-            return new Every(new On(mapToIntegerFieldValue(start)), new IntegerFieldValue(Integer.parseInt(value)));
+            return new Every(period);
         }
-    }
-
-    private FieldExpression noSpecialCharsNorStar(final String expression) {
-        if (ASTERISK.equals(expression)) { // all crons support asterisk
-            return always();
-        } else {
-            if (QUESTION_MARK_STRING.equals(expression)) {
-                return questionMark();
-            }
-            return parseOn(expression);
-        }
+        return new Every(new On(mapToIntegerFieldValue(start)), period);
     }
 
     @VisibleForTesting
     protected FieldExpression parseBetween(final String[] array) {
         if (array[0].isEmpty() || array[1].isEmpty()) {
             throw new IllegalArgumentException(
-                    String.format("Invalid expression! Expression: %s-%s does not describe a range. Negative numbers are not allowed.", array[0], array[1]));
+                    String.format(
+                            "Invalid expression! Expression: %s-%s does not describe a range. Negative numbers are not allowed.",
+                            array[0], array[1]));
         }
         if (array[1].contains(SLASH)) {
             final String[] every = array[1].split(SLASH);
             return new Every(new Between(map(array[0]), map(every[0])), mapToIntegerFieldValue(every[1]));
-        } else {
-            return new Between(map(array[0]), map(array[1]));
         }
+        return new Between(map(array[0]), map(array[1]));
     }
 
     @VisibleForTesting
     protected On parseOn(final String exp) {
-        if (QUESTION_MARK_STRING.equals(exp)) {
-            return parseOnWithQuestionMark(exp);
-        } else if (exp.contains(HASH_TAG)) {
-            return parseOnWithHash(exp);
-        } else if (exp.contains(LW_STRING)) {
-            return parseOnWithLW(exp);
-        } else if (L_PATTERN.matcher(exp).find() || exp.equalsIgnoreCase(L_STRING)) {
-            return parseOnWithL(exp);
-        } else if (W_PATTERN.matcher(exp).find()) {
-            return parseOnWithW(exp);
-        } else {
-            return new On(mapToIntegerFieldValue(exp), new SpecialCharFieldValue(NONE), new IntegerFieldValue(-1));
-        }
+        return onParser.parseOn(exp);
     }
 
     @VisibleForTesting
     protected On parseOnWithHash(final String exp) {
-        if (!fieldConstraints.getSpecialChars().contains(HASH)) {
-            throw new IllegalArgumentException("Invalid expression: " + exp);
-        }
-        final SpecialCharFieldValue specialChar = new SpecialCharFieldValue(HASH);
-        final String[] array = exp.split(HASH_TAG);
-        if (array.length == 0) {
-            throw new IllegalArgumentException("Invalid Position of # Character!");
-        }
-        final IntegerFieldValue nth = mapToIntegerFieldValue(array[1]);
-        if (array[0].isEmpty()) {
-            throw new IllegalArgumentException("Time should be specified!");
-        }
-        return new On(mapToIntegerFieldValue(array[0]), specialChar, nth);
+        return onParser.parseOnWithHash(exp);
     }
 
     @VisibleForTesting
     protected On parseOnWithQuestionMark(final String exp) {
-        final SpecialCharFieldValue specialChar = new SpecialCharFieldValue(QUESTION_MARK);
-        final String questionMarkExpression = exp.replace(QUESTION_MARK_STRING, EMPTY_STRING);
-        if (EMPTY_STRING.equals(questionMarkExpression)) {
-            return new On(new IntegerFieldValue(-1), specialChar, new IntegerFieldValue(-1));
-        } else {
-            throw new IllegalArgumentException(String.format("Expected: '?', found: %s", questionMarkExpression));
-        }
+        return onParser.parseOnWithQuestionMark(exp);
     }
 
     @VisibleForTesting
     protected On parseOnWithLW(final String exp) {
-        final SpecialCharFieldValue specialChar = new SpecialCharFieldValue(LW);
-        final String lwExpression = exp.replace(LW_STRING, EMPTY_STRING);
-        if (EMPTY_STRING.equals(lwExpression)) {
-            return new On(new IntegerFieldValue(-1), specialChar, new IntegerFieldValue(-1));
-        } else {
-            throw new IllegalArgumentException(String.format("Expected: LW, found: %s", lwExpression));
-        }
+        return onParser.parseOnWithLW(exp);
     }
 
     @VisibleForTesting
     protected On parseOnWithL(final String exp) {
-        return parseOnWithL(exp, new IntegerFieldValue(-1));
+        return onParser.parseOnWithL(exp);
     }
 
     protected On parseOnWithL(final String exp, final IntegerFieldValue daysBefore) {
-        final SpecialCharFieldValue specialChar = new SpecialCharFieldValue(L);
-        final String expression = exp.replace(L_STRING, EMPTY_STRING);
-        IntegerFieldValue time = new IntegerFieldValue(-1);
-        if (!EMPTY_STRING.equals(expression)) {
-            time = mapToIntegerFieldValue(expression);
-        }
-        return new On(time, specialChar, daysBefore);
+        return onParser.parseOnWithL(exp, daysBefore);
     }
 
     @VisibleForTesting
     protected On parseOnWithW(final String exp) {
-        return new On(mapToIntegerFieldValue(exp.replace(W_STRING, EMPTY_STRING)), new SpecialCharFieldValue(W), new IntegerFieldValue(-1));
+        return onParser.parseOnWithW(exp);
     }
 
     @VisibleForTesting
     protected IntegerFieldValue mapToIntegerFieldValue(final String string) {
-        try {
-            return new IntegerFieldValue(intToInt(stringToInt(string)));
-        } catch (final NumberFormatException e) {
-            throw new IllegalArgumentException(String.format("Invalid value. Expected some integer, found %s", string));
-        }
+        return valueMapper.mapToIntegerFieldValue(string);
     }
 
     @VisibleForTesting
     protected FieldValue<?> map(final String string) {
-        if (TILDE.equals(string)) {
-            return new SpecialCharFieldValue(SpecialChar.TILDE);
-        }
-        for (final SpecialChar sc : SpecialChar.values()) {
-            if (sc.toString().equals(string)) {
-                return new SpecialCharFieldValue(sc);
-            }
-        }
-        return new IntegerFieldValue(stringToInt(string));
+        return valueMapper.map(string);
     }
 
     /**
@@ -286,17 +202,7 @@ public class FieldParser {
      */
     @VisibleForTesting
     protected int stringToInt(final String exp) {
-        final Integer value = fieldConstraints.getStringMappingValue(exp);
-        if (value != null) {
-            return value;
-        } else {
-            try {
-                return Integer.parseInt(exp);
-            } catch (final NumberFormatException e) {
-                final String invalidChars = new StringValidations(fieldConstraints).removeValidChars(exp);
-                throw new IllegalArgumentException(String.format("Invalid chars in expression! Expression: %s Invalid chars: %s", exp, invalidChars));
-            }
-        }
+        return valueMapper.stringToInt(exp);
     }
 
     /**
@@ -308,10 +214,6 @@ public class FieldParser {
      */
     @VisibleForTesting
     protected int intToInt(final Integer exp) {
-        final Integer value = fieldConstraints.getIntMappingValue(exp);
-        if (value != null) {
-            return value;
-        }
-        return exp;
+        return valueMapper.intToInt(exp);
     }
 }
