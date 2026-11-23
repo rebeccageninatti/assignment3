@@ -79,14 +79,18 @@ public class CronParserField {
      * @return parse result as CronFieldParseResult instance - never null. May throw a RuntimeException if cron expression is bad.
      */
     public CronField parse(final String expression) {
-        String newExpression = expression;
-        if (getField().equals(CronFieldName.DAY_OF_WEEK) && newExpression.endsWith("L")) {
-            Integer value = constraints.getStringMappingValue(newExpression.substring(0, newExpression.length() - 1));
+        final String normalizedExpression = normalizeDayOfWeekLast(expression);
+        return new CronField(field, parser.parse(normalizedExpression), constraints);
+    }
+
+    private String normalizeDayOfWeekLast(final String expression) {
+        if (getField().equals(CronFieldName.DAY_OF_WEEK) && expression.endsWith("L")) {
+            final Integer value = constraints.getStringMappingValue(expression.substring(0, expression.length() - 1));
             if (value != null) {
-                newExpression = value + "L";
+                return value + "L";
             }
         }
-        return new CronField(field, parser.parse(newExpression), constraints);
+        return expression;
     }
 
     /**
