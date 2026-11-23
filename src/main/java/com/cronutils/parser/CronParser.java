@@ -158,7 +158,7 @@ public class CronParser {
             cronCount = Math.max(cronCount, splitTokens[i].length);
         }
 
-        final List<Cron> crons = new ArrayList<>(cronCount);
+        final List<String> expandedExpressions = new ArrayList<>(cronCount);
         for (int cronIndex = 0; cronIndex < cronCount; cronIndex++) {
             final StringBuilder expanded = new StringBuilder();
             for (int tokenIndex = 0; tokenIndex < tokens.length; tokenIndex++) {
@@ -167,9 +167,9 @@ public class CronParser {
                         : tokens[tokenIndex];
                 expanded.append(part).append(' ');
             }
-            crons.add(parse(expanded.toString().trim()));
+            expandedExpressions.add(expanded.toString().trim());
         }
-        return new CompositeCron(crons);
+        return new CompositeCron(expandedExpressions.stream().map(this::parse).collect(Collectors.toList()));
     }
 
     private Cron parseSingleCron(final String normalizedExpression) {

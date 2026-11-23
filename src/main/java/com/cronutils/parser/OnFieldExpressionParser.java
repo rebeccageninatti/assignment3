@@ -22,13 +22,6 @@ import com.cronutils.model.field.value.SpecialCharFieldValue;
 
 import java.util.regex.Pattern;
 
-import static com.cronutils.model.field.value.SpecialChar.HASH;
-import static com.cronutils.model.field.value.SpecialChar.L;
-import static com.cronutils.model.field.value.SpecialChar.LW;
-import static com.cronutils.model.field.value.SpecialChar.NONE;
-import static com.cronutils.model.field.value.SpecialChar.QUESTION_MARK;
-import static com.cronutils.model.field.value.SpecialChar.W;
-
 /**
  * Parses single-value {@link On} cron field expressions including special characters ({@code #}, {@code L}, {@code W}, {@code LW}, {@code ?}).
  */
@@ -68,11 +61,11 @@ final class OnFieldExpressionParser {
         if (W_PATTERN.matcher(expression).find()) {
             return parseOnWithW(expression);
         }
-        return new On(valueMapper.mapToIntegerFieldValue(expression), new SpecialCharFieldValue(NONE), NO_VALUE);
+        return new On(valueMapper.mapToIntegerFieldValue(expression), new SpecialCharFieldValue(SpecialChar.NONE), NO_VALUE);
     }
 
     On parseOnWithHash(final String expression) {
-        if (!fieldConstraints.getSpecialChars().contains(HASH)) {
+        if (!fieldConstraints.getSpecialChars().contains(SpecialChar.HASH)) {
             throw new IllegalArgumentException("Invalid expression: " + expression);
         }
         final String[] parts = expression.split(HASH_TOKEN);
@@ -83,15 +76,15 @@ final class OnFieldExpressionParser {
         if (parts[0].isEmpty()) {
             throw new IllegalArgumentException("Time should be specified!");
         }
-        return new On(valueMapper.mapToIntegerFieldValue(parts[0]), new SpecialCharFieldValue(HASH), nth);
+        return new On(valueMapper.mapToIntegerFieldValue(parts[0]), new SpecialCharFieldValue(SpecialChar.HASH), nth);
     }
 
     On parseOnWithQuestionMark(final String expression) {
-        return parseExactSpecialChar(expression, QUESTION_MARK_TOKEN, QUESTION_MARK, "'?'");
+        return parseExactSpecialChar(expression, QUESTION_MARK_TOKEN, SpecialChar.QUESTION_MARK, "'?'");
     }
 
     On parseOnWithLW(final String expression) {
-        return parseExactSpecialChar(expression, LW_TOKEN, LW, LW_TOKEN);
+        return parseExactSpecialChar(expression, LW_TOKEN, SpecialChar.LW, LW_TOKEN);
     }
 
     On parseOnWithL(final String expression) {
@@ -103,12 +96,12 @@ final class OnFieldExpressionParser {
         final IntegerFieldValue time = EMPTY_STRING.equals(stripped)
                 ? NO_VALUE
                 : valueMapper.mapToIntegerFieldValue(stripped);
-        return new On(time, new SpecialCharFieldValue(L), daysBefore);
+        return new On(time, new SpecialCharFieldValue(SpecialChar.L), daysBefore);
     }
 
     On parseOnWithW(final String expression) {
         final String stripped = expression.replace(W_TOKEN, EMPTY_STRING);
-        return new On(valueMapper.mapToIntegerFieldValue(stripped), new SpecialCharFieldValue(W), NO_VALUE);
+        return new On(valueMapper.mapToIntegerFieldValue(stripped), new SpecialCharFieldValue(SpecialChar.W), NO_VALUE);
     }
 
     private On parseExactSpecialChar(

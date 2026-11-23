@@ -58,7 +58,7 @@ class NominalDescriptionStrategy extends DescriptionStrategy {
     public String describe() {
         for (final Function<FieldExpression, String> function : descriptions) {
             final String description = function.apply(expression);
-            if (!description.isEmpty()) {
+            if (!"".equals(description)) {
                 return description;
             }
         }

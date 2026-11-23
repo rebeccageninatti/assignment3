@@ -110,10 +110,10 @@ class DescriptionStrategyFactory {
     private static Function<Integer, String> dayOfWeekNominalMapper(
             final ResourceBundle bundle,
             final FieldDefinition definition) {
-        final int offset = definition instanceof DayOfWeekFieldDefinition dowDef
-                ? DayOfWeek.MONDAY.getValue() - dowDef.getMondayDoWValue().getMondayDoWValue()
-                : 0;
         return integer -> {
+            final int offset = definition instanceof DayOfWeekFieldDefinition dowDef
+                    ? DayOfWeek.MONDAY.getValue() - dowDef.getMondayDoWValue().getMondayDoWValue()
+                    : 0;
             final int shifted = integer + offset;
             return DayOfWeek.of(shifted < 1 ? 7 : shifted).getDisplayName(TextStyle.FULL, bundle.getLocale());
         };

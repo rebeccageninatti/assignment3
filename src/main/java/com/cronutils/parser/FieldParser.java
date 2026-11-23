@@ -128,11 +128,10 @@ public class FieldParser {
         if (ASTERISK.equals(trimmedStart) && ASTERISK_ALWAYS_VALUE.equals(step)) {
             return parseSingleToken(start);
         }
-        final IntegerFieldValue period = new IntegerFieldValue(Integer.parseInt(step));
         if (ASTERISK.equals(trimmedStart)) {
-            return new Every(period);
+            return new Every(new IntegerFieldValue(Integer.parseInt(step)));
         }
-        return new Every(new On(mapToIntegerFieldValue(start)), period);
+        return new Every(new On(mapToIntegerFieldValue(start)), new IntegerFieldValue(Integer.parseInt(step)));
     }
 
     @VisibleForTesting
