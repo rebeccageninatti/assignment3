@@ -13,15 +13,17 @@
 
 package com.cronutils.descriptor;
 
-import com.cronutils.Function;
-import com.cronutils.model.field.expression.*;
+import com.cronutils.model.field.expression.Always;
+import com.cronutils.model.field.expression.Every;
+import com.cronutils.model.field.expression.FieldExpression;
+import com.cronutils.model.field.expression.On;
 import com.cronutils.model.field.value.IntegerFieldValue;
 import com.cronutils.utils.Preconditions;
-import com.cronutils.utils.StringUtils;
 
-import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
 import java.util.ResourceBundle;
-import java.util.Set;
+import java.util.function.Function;
 
 import static com.cronutils.model.field.expression.FieldExpression.always;
 
@@ -30,298 +32,129 @@ import static com.cronutils.model.field.expression.FieldExpression.always;
  */
 class TimeDescriptionStrategy extends DescriptionStrategy {
 
-	private final FieldExpression hours;
-	private final FieldExpression minutes;
-	private final FieldExpression seconds;
-	private final Set<Function<TimeFields, String>> descriptions;
-	private static final int DEFAULTSECONDS = 0;
+    static final String EVERY = "every";
+    static final String SECOND = "second";
+    static final String SECONDS = "seconds";
+    static final String MINUTE = "minute";
+    static final String MINUTES = "minutes";
+    static final String HOUR = "hour";
+    static final String HOURS = "hours";
+    static final String AT = "at";
+    static final String AND = "and";
+    static final String BETWEEN = "between";
+    static final String OF_EVERY_HOUR = "of_every_hour";
 
-	private static final String EVERY = "every";
-	private static final String SECOND = "second";
-	private static final String MINUTE = "minute";
-	private static final String HOUR = "hour";
-	private static final String EVERY_MINUTE_FORMAT = "%s %s ";
+    private static final int DEFAULT_TIME_VALUE = 0;
+    private static final String EVERY_UNIT_FORMAT = "%s %s ";
 
-	/**
-	 * Constructor.
-	 *
-	 * @param bundle  - locale considered when creating the description
-	 * @param hours   - CronFieldExpression for hours. If no instance is provided,
-	 *                an Always instance is created.
-	 * @param minutes - CronFieldExpression for minutes. If no instance is provided,
-	 *                an Always instance is created.
-	 * @param seconds - CronFieldExpression for seconds. If no instance is provided,
-	 *                an On instance is created.
-	 */
-	TimeDescriptionStrategy(final ResourceBundle bundle, final FieldExpression hours, final FieldExpression minutes,
-			final FieldExpression seconds) {
-		super(bundle);
-		this.hours = ensureInstance(hours, always());
-		this.minutes = ensureInstance(minutes, always());
-		this.seconds = ensureInstance(seconds, new On(new IntegerFieldValue(DEFAULTSECONDS)));
-		descriptions = new HashSet<>();
-		registerFunctions();
-	}
+    private static final List<Function<TimeDescriptionStrategy, Optional<String>>> DESCRIPTION_RULES = List.of(
+            RecurringTimeRules::describeEverySecondOrMinute,
+            RecurringTimeRules::describeEveryHourAtMinuteAndSecond,
+            FixedHourTimeRules::describeEverySecondAtHourAndMinute,
+            FixedHourTimeRules::describeExactTime,
+            FixedHourTimeRules::describeAtHourOnTheHour,
+            FixedHourTimeRules::describeBetweenMinutesAtHour,
+            RecurringTimeRules::describeEveryXMinutes,
+            RecurringTimeRules::describeEveryXHours,
+            RecurringTimeRules::describeEverySecondAtMinuteOfEveryHour,
+            RecurringTimeRules::describeEverySecondAtAndMinutes,
+            RecurringTimeRules::describeEverySecondAtAndHours
+    );
 
-	/**
-	 * Give an expression instance, will return it if is not null. Otherwise will
-	 * return the defaultExpression;
-	 *
-	 * @param expression        - CronFieldExpression instance; may be null
-	 * @param defaultExpression - CronFieldExpression, never null;
-	 * @return the given expression or the given defaultExpression in case the given
-	 *         expression is {@code null}
-	 */
-	private FieldExpression ensureInstance(final FieldExpression expression, final FieldExpression defaultExpression) {
-		Preconditions.checkNotNull(defaultExpression, "Default expression must not be null");
-		if (expression != null) {
-			return expression;
-		} else {
-			return defaultExpression;
-		}
-	}
+    private final FieldExpression hours;
+    private final FieldExpression minutes;
+    private final FieldExpression seconds;
 
-	@Override
-	public String describe() {
-		final TimeFields fields = new TimeFields(hours, minutes, seconds);
-		for (final Function<TimeFields, String> function : descriptions) {
-			if (!"".equals(function.apply(fields))) {
-				return function.apply(fields);
-			}
-		}
-		String secondsDesc = "";
-		String minutesDesc = "";
-		String hoursDesc = "";
-		if (!(hours instanceof Always)) {
-			hoursDesc = addTimeExpressions(describe(hours), bundle.getString(HOUR), bundle.getString("hours"));
-		}
-		if (!(minutes instanceof On && isDefault((On) minutes)) && !((minutes instanceof Always) && (hours instanceof Always))) {
-			minutesDesc = addTimeExpressions(describe(minutes), bundle.getString(MINUTE), bundle.getString("minutes"));
-		}
-		if (!(seconds instanceof On && isDefault((On) seconds))) {
-			secondsDesc = addTimeExpressions(describe(seconds), bundle.getString(SECOND), bundle.getString("seconds"));
-		}
-		return String.format("%s %s %s", secondsDesc, minutesDesc, hoursDesc);
-	}
+    /**
+     * Constructor.
+     *
+     * @param bundle  - locale considered when creating the description
+     * @param hours   - CronFieldExpression for hours. If no instance is provided, an Always instance is created.
+     * @param minutes - CronFieldExpression for minutes. If no instance is provided, an Always instance is created.
+     * @param seconds - CronFieldExpression for seconds. If no instance is provided, an On instance is created.
+     */
+    TimeDescriptionStrategy(
+            final ResourceBundle bundle,
+            final FieldExpression hours,
+            final FieldExpression minutes,
+            final FieldExpression seconds) {
+        super(bundle);
+        this.hours = ensureInstance(hours, always());
+        this.minutes = ensureInstance(minutes, always());
+        this.seconds = ensureInstance(seconds, new On(new IntegerFieldValue(DEFAULT_TIME_VALUE)));
+    }
 
-	protected String describe(final Always always, final boolean and) {
-		return describe(new Every(new IntegerFieldValue(1)), and);
-	}
+    private FieldExpression ensureInstance(final FieldExpression expression, final FieldExpression defaultExpression) {
+        Preconditions.checkNotNull(defaultExpression, "Default expression must not be null");
+        return expression != null ? expression : defaultExpression;
+    }
 
-	private String addTimeExpressions(final String description, final String singular, final String plural) {
-		return description.replaceAll("%s", singular).replaceAll("replace_plural", plural);
-	}
+    @Override
+    public String describe() {
+        for (final Function<TimeDescriptionStrategy, Optional<String>> rule : DESCRIPTION_RULES) {
+            final Optional<String> description = rule.apply(this);
+            if (description.isPresent()) {
+                return description.get();
+            }
+        }
+        return describeFallback();
+    }
 
-	/**
-	 * Registers functions that map TimeFields to a human readable description.
-	 */
-	private void registerFunctions() {
-		// case: every second
-		// case: every minute at x second
-		descriptions.add(timeFields -> {
-			if (timeFields.hours instanceof Always && timeFields.minutes instanceof Always) {
-				if (timeFields.seconds instanceof Always) {
-					return String.format(EVERY_MINUTE_FORMAT, bundle.getString(EVERY), bundle.getString(SECOND));
-				}
-				if (timeFields.seconds instanceof On) {
-					if (TimeDescriptionStrategy.this.isDefault((On) timeFields.seconds)) {
-						return String.format(EVERY_MINUTE_FORMAT, bundle.getString(EVERY), bundle.getString(MINUTE));
-					} else {
-						return String.format("%s %s %s %s %02d", bundle.getString(EVERY), bundle.getString(MINUTE),
-								bundle.getString("at"), bundle.getString(SECOND),
-								((On) timeFields.seconds).getTime().getValue());
-					}
-				}
-			}
-			return StringUtils.EMPTY;
-		});
+    private String describeFallback() {
+        final String hoursDesc = hours instanceof Always
+                ? ""
+                : describeFieldWithUnits(hours, HOUR, HOURS);
+        final String minutesDesc = shouldDescribeMinutes()
+                ? describeFieldWithUnits(minutes, MINUTE, MINUTES)
+                : "";
+        final String secondsDesc = shouldDescribeSeconds()
+                ? describeFieldWithUnits(seconds, SECOND, SECONDS)
+                : "";
+        return String.format("%s %s %s", secondsDesc, minutesDesc, hoursDesc);
+    }
 
-		// case: At minute x
-		descriptions.add(timeFields -> {
-			if (timeFields.hours instanceof Always && timeFields.minutes instanceof On
-					&& timeFields.seconds instanceof On) {
-				if (TimeDescriptionStrategy.this.isDefault((On) timeFields.seconds)) {
-					if (TimeDescriptionStrategy.this.isDefault((On) timeFields.minutes)) {
-						return String.format(EVERY_MINUTE_FORMAT, bundle.getString(EVERY), bundle.getString(HOUR));
-					}
-					return String.format("%s %s %s %s %s", bundle.getString(EVERY), bundle.getString(HOUR),
-							bundle.getString("at"), bundle.getString(MINUTE),
-							((On) timeFields.minutes).getTime().getValue());
-				} else {
-					return String.format("%s %s %s %s %s %s %s %s", bundle.getString(EVERY), bundle.getString(HOUR),
-							bundle.getString("at"), bundle.getString(MINUTE),
-							((On) timeFields.minutes).getTime().getValue(), bundle.getString("and"),
-							bundle.getString(SECOND), ((On) timeFields.seconds).getTime().getValue());
-				}
-			}
-			return StringUtils.EMPTY;
-		});
+    private boolean shouldDescribeMinutes() {
+        final boolean isDefaultMinute = minutes instanceof On onMinutes && isZero(onMinutes);
+        final boolean bothAlways = minutes instanceof Always && hours instanceof Always;
+        return !isDefaultMinute && !bothAlways;
+    }
 
-		// case: 11:45
-		descriptions.add(timeFields -> {
-			if (timeFields.hours instanceof On && timeFields.minutes instanceof On
-					&& timeFields.seconds instanceof Always) {
-				return String.format("%s %s %s %02d:%02d", bundle.getString(EVERY), bundle.getString(SECOND),
-						bundle.getString("at"), ((On) hours).getTime().getValue(), ((On) minutes).getTime().getValue());
-			}
-			return StringUtils.EMPTY;
-		});
+    private boolean shouldDescribeSeconds() {
+        return !(seconds instanceof On onSeconds && isZero(onSeconds));
+    }
 
-		// case: 11:30:45
-		// case: 11:30:00 -> 11:30
-		descriptions.add(timeFields -> {
-			if (timeFields.hours instanceof On && timeFields.minutes instanceof On
-					&& timeFields.seconds instanceof On) {
-				if (TimeDescriptionStrategy.this.isDefault((On) timeFields.seconds)) {
-					return String.format("%s %02d:%02d", bundle.getString("at"), ((On) hours).getTime().getValue(),
-							((On) minutes).getTime().getValue());
-				} else {
-					return String.format("%s %02d:%02d:%02d", bundle.getString("at"), ((On) hours).getTime().getValue(),
-							((On) minutes).getTime().getValue(), ((On) seconds).getTime().getValue());
-				}
-			}
-			return StringUtils.EMPTY;
-		});
+    @Override
+    protected String describe(final Always always, final boolean and) {
+        return describe(new Every(new IntegerFieldValue(1)), and);
+    }
 
-		// 11 -> 11:00
-		descriptions.add(timeFields -> {
-			if (timeFields.hours instanceof On && timeFields.minutes instanceof Always
-					&& timeFields.seconds instanceof Always) {
-				return String.format("%s %02d:00", bundle.getString("at"), ((On) hours).getTime().getValue());
-			}
-			return StringUtils.EMPTY;
-		});
+    FieldExpression getHours() {
+        return hours;
+    }
 
-		// case: every minute between 11:00 and 11:10
-		// case: every second between 11:00 and 11:10
-		descriptions.add(timeFields -> {
-			if (timeFields.hours instanceof On && timeFields.minutes instanceof Between) {
-				if (timeFields.seconds instanceof On) {
-					return String.format("%s %s %s %02d:%02d %s %02d:%02d", bundle.getString(EVERY),
-							bundle.getString(MINUTE), bundle.getString("between"),
-							((On) timeFields.hours).getTime().getValue(),
-							((Between) timeFields.minutes).getFrom().getValue(), bundle.getString("and"),
-							((On) timeFields.hours).getTime().getValue(),
-							((Between) timeFields.minutes).getTo().getValue());
-				}
-				if (timeFields.seconds instanceof Always) {
-					return String.format("%s %s %s %02d:%02d %s %02d:%02d", bundle.getString(EVERY),
-							bundle.getString(SECOND), bundle.getString("between"),
-							((On) timeFields.hours).getTime().getValue(),
-							((Between) timeFields.minutes).getFrom().getValue(), bundle.getString("and"),
-							((On) timeFields.hours).getTime().getValue(),
-							((Between) timeFields.minutes).getTo().getValue());
-				}
-			}
-			return StringUtils.EMPTY;
-		});
+    FieldExpression getMinutes() {
+        return minutes;
+    }
 
-		// case: every x minutes
-		descriptions.add(timeFields -> {
-			if (timeFields.hours instanceof Always && timeFields.minutes instanceof Every
-					&& timeFields.seconds instanceof On) {
-				final Every minute = (Every) timeFields.minutes;
-				String desc;
-				if (minute.getPeriod().getValue() == 1
-						&& TimeDescriptionStrategy.this.isDefault((On) timeFields.seconds)) {
-					desc = String.format(EVERY_MINUTE_FORMAT, bundle.getString(EVERY), bundle.getString(MINUTE));
-				} else {
-					desc = String.format("%s %s %s ", bundle.getString(EVERY), minute.getPeriod().getValue(),
-							bundle.getString("minutes"));
-				}
-				if (minute.getExpression() instanceof Between) {
-					return StringUtils.EMPTY;
-				}
-				return desc;
-			}
-			return StringUtils.EMPTY;
-		});
+    FieldExpression getSeconds() {
+        return seconds;
+    }
 
-		// case: every x hours
-		descriptions.add(timeFields -> {
-			if (timeFields.hours instanceof Every && timeFields.minutes instanceof On
-					&& timeFields.seconds instanceof On) {
-				// every hour
-				if (((On) timeFields.minutes).getTime().getValue() == 0
-						&& ((On) timeFields.seconds).getTime().getValue() == 0) {
-					final Integer period = ((Every) timeFields.hours).getPeriod().getValue();
-					if (period == null || period == 1) {
-						return String.format(EVERY_MINUTE_FORMAT, bundle.getString(EVERY), bundle.getString(HOUR));
-					}
-				}
-				final String result = String.format("%s %s %s %s %s %s ", bundle.getString(EVERY),
-						((Every) hours).getPeriod().getValue(), bundle.getString("hours"), bundle.getString("at"),
-						bundle.getString(MINUTE), ((On) minutes).getTime().getValue());
-				if (TimeDescriptionStrategy.this.isDefault((On) timeFields.seconds)) {
-					return result;
-				} else {
-					return String.format("%s %s %s", bundle.getString("and"), bundle.getString(SECOND),
-							((On) seconds).getTime().getValue());
-				}
-			}
-			return StringUtils.EMPTY;
-		});
+    String text(final String bundleKey) {
+        return bundle.getString(bundleKey);
+    }
 
-		// case: every second at minute 00
-		descriptions.add(timeFields -> {
-			if (timeFields.hours instanceof Always && timeFields.seconds instanceof Always) {
-				if (timeFields.minutes instanceof On) {
-					// Every
-					return String.format("%s %s %s %s %02d %s", bundle.getString(EVERY), bundle.getString(SECOND),
-							bundle.getString("at"), bundle.getString(MINUTE),
-							((On) timeFields.minutes).getTime().getValue(), bundle.getString("of_every_hour"));
-				}
-			}
-			return StringUtils.EMPTY;
-		});
+    String formatEveryUnit(final String unitKey) {
+        return String.format(EVERY_UNIT_FORMAT, bundle.getString(EVERY), bundle.getString(unitKey));
+    }
 
-		// case: every second at minute 00 and every x minutes
-		descriptions.add(timeFields -> {
-			if (timeFields.hours instanceof Always && timeFields.seconds instanceof Always) {
-				if (timeFields.minutes instanceof And) {
-					// Every
-					String minutesDesc = addTimeExpressions(describe(timeFields.minutes),
-							bundle.getString("minute"), bundle.getString("minutes"));
-					return String.format("%s %s %s", bundle.getString(EVERY), bundle.getString(SECOND), minutesDesc);
-				}
-			}
-			return StringUtils.EMPTY;
-		});
+    String describeFieldWithUnits(final FieldExpression expression, final String singularKey, final String pluralKey) {
+        return describe(expression)
+                .replace("%s", bundle.getString(singularKey))
+                .replace("replace_plural", bundle.getString(pluralKey));
+    }
 
-		// case: every second at x, y and z hours
-		descriptions.add(timeFields -> {
-			if (timeFields.hours instanceof And && timeFields.minutes instanceof Always && timeFields.seconds instanceof Always) {
-				// Every
-				String hoursDesc = addTimeExpressions(describe(timeFields.hours),
-							bundle.getString(HOUR), bundle.getString("hours"));
-					return String.format("%s %s %s", bundle.getString(EVERY), bundle.getString(SECOND), hoursDesc);
-			}
-			return StringUtils.EMPTY;
-		});
-	}
-
-	/**
-	 * Contains CronFieldExpression instances for hours, minutes and seconds.
-	 */
-	class TimeFields {
-		private final FieldExpression seconds;
-		private final FieldExpression minutes;
-		private final FieldExpression hours;
-
-		public TimeFields(final FieldExpression hours, final FieldExpression minutes, final FieldExpression seconds) {
-			this.hours = hours;
-			this.minutes = minutes;
-			this.seconds = seconds;
-		}
-	}
-
-	/**
-	 * Checks if On instance has a default value.
-	 *
-	 * @param on - On instance
-	 * @return boolean - true if time value matches a default; false otherwise.
-	 */
-	private boolean isDefault(final On on) {
-		return on.getTime().getValue() == DEFAULTSECONDS;
-	}
+    static boolean isZero(final On on) {
+        return on.getTime().getValue() == DEFAULT_TIME_VALUE;
+    }
 }
