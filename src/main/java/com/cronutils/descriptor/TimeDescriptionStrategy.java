@@ -149,9 +149,8 @@ class TimeDescriptionStrategy extends DescriptionStrategy {
     }
 
     String describeFieldWithUnits(final FieldExpression expression, final String singularKey, final String pluralKey) {
-        return describe(expression)
-                .replace("%s", bundle.getString(singularKey))
-                .replace("replace_plural", bundle.getString(pluralKey));
+        return DescriptionStrategyFactory.replaceUnitPlaceholders(
+                describe(expression), bundle.getString(singularKey), bundle.getString(pluralKey));
     }
 
     static boolean isZero(final On on) {

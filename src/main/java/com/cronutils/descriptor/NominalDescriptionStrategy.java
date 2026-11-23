@@ -15,51 +15,63 @@ package com.cronutils.descriptor;
 
 import com.cronutils.Function;
 import com.cronutils.model.field.expression.FieldExpression;
+import com.cronutils.model.field.value.FieldValue;
+import com.cronutils.model.field.value.IntegerFieldValue;
+import com.cronutils.utils.Preconditions;
 
-import java.util.HashSet;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.ResourceBundle;
-import java.util.Set;
 
 import static com.cronutils.model.field.expression.FieldExpression.always;
 
 /**
  * Description strategy where a cron field number can be mapped to a name.
- * Ex.: days of week or months
+ * Ex.: days of week or months.
  */
 class NominalDescriptionStrategy extends DescriptionStrategy {
-    private FieldExpression expression;
-    private final Set<Function<FieldExpression, String>> descriptions;
+    private static final Function<Integer, String> DEFAULT_NOMINAL_FUNCTION = integer -> WHITE_SPACE + integer;
+
+    private final FieldExpression expression;
+    private final Function<Integer, String> nominalValueFunction;
+    private final List<Function<FieldExpression, String>> descriptions;
 
     /**
      * Constructor.
      *
      * @param bundle               - locale in which description should be given
-     * @param nominalValueFunction - function that maps Integer to String.
-     *                             The function should return "" if does not match criteria,
-     *                             or the description otherwise.
+     * @param nominalValueFunction - function that maps an integer field value to its nominal String representation;
+     *                               if {@code null}, defaults to the integer value prefixed with a space.
      * @param expression           - CronFieldExpression instance, the expression to be described.
      */
-    public NominalDescriptionStrategy(final ResourceBundle bundle, final Function<Integer, String> nominalValueFunction, final FieldExpression expression) {
+    public NominalDescriptionStrategy(
+            final ResourceBundle bundle,
+            final Function<Integer, String> nominalValueFunction,
+            final FieldExpression expression) {
         super(bundle);
-        descriptions = new HashSet<>();
-        if (nominalValueFunction != null) {
-            this.nominalValueFunction = nominalValueFunction;
-        }
-        if (expression != null) {
-            this.expression = expression;
-        } else {
-            this.expression = always();
-        }
+        this.descriptions = new ArrayList<>();
+        this.nominalValueFunction = nominalValueFunction != null ? nominalValueFunction : DEFAULT_NOMINAL_FUNCTION;
+        this.expression = expression != null ? expression : always();
     }
 
     @Override
     public String describe() {
         for (final Function<FieldExpression, String> function : descriptions) {
-            if (!"".equals(function.apply(expression))) {
-                return function.apply(expression);
+            final String description = function.apply(expression);
+            if (!description.isEmpty()) {
+                return description;
             }
         }
         return describe(expression);
+    }
+
+    @Override
+    protected String nominalValue(final FieldValue<?> fieldValue) {
+        Preconditions.checkNotNull(fieldValue, "FieldValue must not be null");
+        if (fieldValue instanceof IntegerFieldValue intValue) {
+            return nominalValueFunction.apply(intValue.getValue());
+        }
+        return fieldValue.toString();
     }
 
     /**
