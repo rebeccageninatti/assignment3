@@ -15,9 +15,18 @@ package com.cronutils.model.definition;
 
 import com.cronutils.model.CronType;
 import com.cronutils.model.field.CronFieldName;
-import com.cronutils.model.field.definition.*;
+import com.cronutils.model.field.definition.FieldDayOfWeekDefinitionBuilder;
+import com.cronutils.model.field.definition.FieldDefinition;
+import com.cronutils.model.field.definition.FieldDefinitionBuilder;
+import com.cronutils.model.field.definition.FieldQuestionMarkDefinitionBuilder;
+import com.cronutils.model.field.definition.FieldSpecialCharsDefinitionBuilder;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Builder that allows to define and create CronDefinition instances.
@@ -28,10 +37,8 @@ public class CronDefinitionBuilder {
     private final Set<CronNicknames> cronNicknames = new HashSet<>();
     private boolean matchDayOfWeekAndDayOfMonth;
 
-    /**
-     * Constructor.
-     */
-    private CronDefinitionBuilder() {/*NOP*/}
+    private CronDefinitionBuilder() {
+    }
 
     /**
      * Creates a builder instance.
@@ -90,7 +97,7 @@ public class CronDefinitionBuilder {
     /**
      * Adds definition for day of week field.
      *
-     * @return new FieldSpecialCharsDefinitionBuilder instance
+     * @return new FieldDayOfWeekDefinitionBuilder instance
      */
     public FieldDayOfWeekDefinitionBuilder withDayOfWeek() {
         return new FieldDayOfWeekDefinitionBuilder(this, CronFieldName.DAY_OF_WEEK);
@@ -108,7 +115,7 @@ public class CronDefinitionBuilder {
     /**
      * Adds definition for day of year field.
      *
-     * @return new FieldDefinitionBuilder instance
+     * @return new FieldQuestionMarkDefinitionBuilder instance
      */
     public FieldQuestionMarkDefinitionBuilder withDayOfYear() {
         return new FieldQuestionMarkDefinitionBuilder(this, CronFieldName.DAY_OF_YEAR);
@@ -130,8 +137,7 @@ public class CronDefinitionBuilder {
      * @return this CronDefinitionBuilder instance
      */
     public CronDefinitionBuilder withSupportedNicknameYearly() {
-        cronNicknames.add(CronNicknames.YEARLY);
-        return this;
+        return withSupportedNickname(CronNicknames.YEARLY);
     }
 
     /**
@@ -140,8 +146,7 @@ public class CronDefinitionBuilder {
      * @return this CronDefinitionBuilder instance
      */
     public CronDefinitionBuilder withSupportedNicknameAnnually() {
-        cronNicknames.add(CronNicknames.ANNUALLY);
-        return this;
+        return withSupportedNickname(CronNicknames.ANNUALLY);
     }
 
     /**
@@ -150,8 +155,7 @@ public class CronDefinitionBuilder {
      * @return this CronDefinitionBuilder instance
      */
     public CronDefinitionBuilder withSupportedNicknameMonthly() {
-        cronNicknames.add(CronNicknames.MONTHLY);
-        return this;
+        return withSupportedNickname(CronNicknames.MONTHLY);
     }
 
     /**
@@ -160,8 +164,7 @@ public class CronDefinitionBuilder {
      * @return this CronDefinitionBuilder instance
      */
     public CronDefinitionBuilder withSupportedNicknameWeekly() {
-        cronNicknames.add(CronNicknames.WEEKLY);
-        return this;
+        return withSupportedNickname(CronNicknames.WEEKLY);
     }
 
     /**
@@ -170,8 +173,7 @@ public class CronDefinitionBuilder {
      * @return this CronDefinitionBuilder instance
      */
     public CronDefinitionBuilder withSupportedNicknameDaily() {
-        cronNicknames.add(CronNicknames.DAILY);
-        return this;
+        return withSupportedNickname(CronNicknames.DAILY);
     }
 
     /**
@@ -180,8 +182,7 @@ public class CronDefinitionBuilder {
      * @return this CronDefinitionBuilder instance
      */
     public CronDefinitionBuilder withSupportedNicknameMidnight() {
-        cronNicknames.add(CronNicknames.MIDNIGHT);
-        return this;
+        return withSupportedNickname(CronNicknames.MIDNIGHT);
     }
 
     /**
@@ -190,8 +191,7 @@ public class CronDefinitionBuilder {
      * @return this CronDefinitionBuilder instance
      */
     public CronDefinitionBuilder withSupportedNicknameHourly() {
-        cronNicknames.add(CronNicknames.HOURLY);
-        return this;
+        return withSupportedNickname(CronNicknames.HOURLY);
     }
 
     /**
@@ -200,12 +200,17 @@ public class CronDefinitionBuilder {
      * @return this CronDefinitionBuilder instance
      */
     public CronDefinitionBuilder withSupportedNicknameReboot() {
-        cronNicknames.add(CronNicknames.REBOOT);
+        return withSupportedNickname(CronNicknames.REBOOT);
+    }
+
+    private CronDefinitionBuilder withSupportedNickname(final CronNicknames nickname) {
+        cronNicknames.add(nickname);
         return this;
     }
 
     /**
      * Adds a cron validation.
+     *
      * @param validation - constraint validation
      * @return this CronDefinitionBuilder instance
      */
@@ -217,17 +222,10 @@ public class CronDefinitionBuilder {
     /**
      * Registers a certain FieldDefinition.
      *
-     * @param definition - FieldDefinition  instance, never null
+     * @param definition - FieldDefinition instance, never null
      */
     public void register(final FieldDefinition definition) {
-        //ensure that we can't register a mandatory definition if there are already optional ones
-        boolean hasOptionalField = false;
-        for (final FieldDefinition fieldDefinition : fields.values()) {
-            if (fieldDefinition.isOptional()) {
-                hasOptionalField = true;
-                break;
-            }
-        }
+        final boolean hasOptionalField = fields.values().stream().anyMatch(FieldDefinition::isOptional);
         if (!definition.isOptional() && hasOptionalField) {
             throw new IllegalArgumentException("Can't register mandatory definition after a optional definition.");
         }
@@ -240,268 +238,13 @@ public class CronDefinitionBuilder {
      * @return returns CronDefinition instance, never null
      */
     public CronDefinition instance() {
-        final Set<CronConstraint> validations = new HashSet<>();
-        validations.addAll(cronConstraints);
         final List<FieldDefinition> values = new ArrayList<>(fields.values());
         values.sort(FieldDefinition.createFieldDefinitionComparator());
-        return new CronDefinition(values, validations, cronNicknames, matchDayOfWeekAndDayOfMonth);
-    }
-
-    /**
-     * Creates CronDefinition instance matching cron4j specification.
-     *
-     * @return CronDefinition instance, never null;
-     */
-    private static CronDefinition cron4j() {
-        return CronDefinitionBuilder.defineCron()
-                .withMinutes().withValidRange(0, 59).withStrictRange().and()
-                .withHours().withValidRange(0, 23).withStrictRange().and()
-                .withDayOfMonth().withValidRange(0, 31).supportsL().withStrictRange().and()
-                .withMonth().withValidRange(1, 12).withStrictRange().and()
-                .withDayOfWeek().withValidRange(0, 6).withMondayDoWValue(1).withStrictRange().and()
-                .matchDayOfWeekAndDayOfMonth()
-                .instance();
-    }
-
-    /**
-     * Creates CronDefinition instance matching Quartz specification.
-     *
-     * <p>The cron expression is expected to be a string comprised of 6 or 7
-     * fields separated by white space. Fields can contain any of the allowed
-     * values, along with various combinations of the allowed special characters
-     * for that field. The fields are as follows:
-     *
-     * <table style="width:100%">
-     * <tr>
-     * <th>Field Name</th>
-     * <th>Mandatory</th>
-     * <th>Allowed Values</th>
-     * <th>Allowed Special Characters</th>
-     * </tr>
-     * <tr>
-     * <td>Seconds</td>
-     * <td>YES</td>
-     * <td>0-59</td>
-     * <td>* , - /</td>
-     * </tr>
-     * <tr>
-     * <td>Minutes</td>
-     * <td>YES</td>
-     * <td>0-59</td>
-     * <td>* , - /</td>
-     * </tr>
-     * <tr>
-     * <td>Hours</td>
-     * <td>YES</td>
-     * <td>0-23</td>
-     * <td>* , - /</td>
-     * </tr>
-     * <tr>
-     * <td>Day of month</td>
-     * <td>YES</td>
-     * <td>1-31</td>
-     * <td>* ? , - / L W</td>
-     * </tr>
-     * <tr>
-     * <td>Month</td>
-     * <td>YES</td>
-     * <td>1-12 or JAN-DEC</td>
-     * <td>* , -</td>
-     * </tr>
-     * <tr>
-     * <td>Day of week</td>
-     * <td>YES</td>
-     * <td>1-7 or SUN-SAT</td>
-     * <td>* ? , - / L #</td>
-     * </tr>
-     * <tr>
-     * <td>Year</td>
-     * <td>NO</td>
-     * <td>empty, 1970-2099</td>
-     * <td>* , - /</td>
-     * </tr>
-     * </table>
-     *
-     * <p>Thus in general Quartz cron expressions are as follows:
-     *
-     * <p>S M H DoM M DoW [Y]
-     *
-     * @return {@link CronDefinition} instance, never {@code null}
-     */
-    private static CronDefinition quartz() {
-        return CronDefinitionBuilder.defineCron()
-                .withSeconds().withValidRange(0, 59).and()
-                .withMinutes().withValidRange(0, 59).and()
-                .withHours().withValidRange(0, 23).and()
-                .withDayOfMonth().withValidRange(1, 31).supportsL().supportsW().supportsLW().supportsQuestionMark().and()
-                .withMonth().withValidRange(1, 12).and()
-                .withDayOfWeek().withValidRange(1, 7).withMondayDoWValue(2).supportsHash().supportsL().supportsQuestionMark().and()
-                .withYear().withValidRange(1970, 2099).withStrictRange().optional().and()
-                .withCronValidation(CronConstraintsFactory.ensureQuartzDayOfMonthAndDayOfWeekValidation())
-                .instance();
-    }
-
-    /**
-     * Creates CronDefinition instance matching Spring (v5.2 and below) specification.
-     *
-     * <p>The cron expression is expected to be a string comprised of 6
-     * fields separated by white space. Fields can contain any of the allowed
-     * values, along with various combinations of the allowed special characters
-     * for that field. The fields are as follows:
-     *
-     * <table style="width:100%">
-     * <tr>
-     * <th>Field Name</th>
-     * <th>Mandatory</th>
-     * <th>Allowed Values</th>
-     * <th>Allowed Special Characters</th>
-     * </tr>
-     * <tr>
-     * <td>Seconds</td>
-     * <td>YES</td>
-     * <td>0-59</td>
-     * <td>* , - /</td>
-     * </tr>
-     * <tr>
-     * <td>Minutes</td>
-     * <td>YES</td>
-     * <td>0-59</td>
-     * <td>* , - /</td>
-     * </tr>
-     * <tr>
-     * <td>Hours</td>
-     * <td>YES</td>
-     * <td>0-23</td>
-     * <td>* , - /</td>
-     * </tr>
-     * <tr>
-     * <td>Day of month</td>
-     * <td>YES</td>
-     * <td>1-31</td>
-     * <td>* ? , - /</td>
-     * </tr>
-     * <tr>
-     * <td>Month</td>
-     * <td>YES</td>
-     * <td>1-12 or JAN-DEC</td>
-     * <td>* , -</td>
-     * </tr>
-     * <tr>
-     * <td>Day of week</td>
-     * <td>YES</td>
-     * <td>0-7 or SUN-SAT</td>
-     * <td>* ? , - /</td>
-     * </tr>
-     * </table>
-     *
-     * <p>Thus in general Spring cron expressions are as follows (up to version 5.2):
-     *
-     * <p>S M H DoM M DoW
-     *
-     * @return {@link CronDefinition} instance, never {@code null}
-     */
-    private static CronDefinition spring() {
-        return CronDefinitionBuilder.defineCron()
-                .withSeconds().withValidRange(0, 59).withStrictRange().and()
-                .withMinutes().withValidRange(0, 59).withStrictRange().and()
-                .withHours().withValidRange(0, 23).withStrictRange().and()
-                .withDayOfMonth().withValidRange(1, 31).supportsQuestionMark().and()
-                .withMonth().withValidRange(1, 12).and()
-                .withDayOfWeek().withValidRange(0, 7).withMondayDoWValue(1).withIntMapping(7,0)
-                    .supportsHash().supportsQuestionMark().and()
-                .instance();
-    }
-
-    /**
-     * Creates CronDefinition instance matching Spring (v5.2 onwards) specification.
-     * https://spring.io/blog/2020/11/10/new-in-spring-5-3-improved-cron-expressions
-     *
-     * <p>The cron expression is expected to be a string comprised of 6
-     * fields separated by white space. Fields can contain any of the allowed
-     * values, along with various combinations of the allowed special characters
-     * for that field. The fields are as follows:
-     *
-     * <table style="width:100%">
-     * <tr>
-     * <th>Field Name</th>
-     * <th>Mandatory</th>
-     * <th>Allowed Values</th>
-     * <th>Allowed Special Characters</th>
-     * </tr>
-     * <tr>
-     * <td>Seconds</td>
-     * <td>YES</td>
-     * <td>0-59</td>
-     * <td>* , - /</td>
-     * </tr>
-     * <tr>
-     * <td>Minutes</td>
-     * <td>YES</td>
-     * <td>0-59</td>
-     * <td>* , - /</td>
-     * </tr>
-     * <tr>
-     * <td>Hours</td>
-     * <td>YES</td>
-     * <td>0-23</td>
-     * <td>* , - /</td>
-     * </tr>
-     * <tr>
-     * <td>Day of month</td>
-     * <td>YES</td>
-     * <td>1-31</td>
-     * <td>* ? , - / L W</td>
-     * </tr>
-     * <tr>
-     * <td>Month</td>
-     * <td>YES</td>
-     * <td>1-12 or JAN-DEC</td>
-     * <td>* , -</td>
-     * </tr>
-     * <tr>
-     * <td>Day of week</td>
-     * <td>YES</td>
-     * <td>0-7 or SUN-SAT</td>
-     * <td>* ? , - / L #</td>
-     * </tr>
-     * </table>
-     *
-     * <p>Thus in general Spring cron expressions are as follows (from version 5.3 onwards):
-     *
-     * <p>S M H DoM M DoW
-     *
-     * @return {@link CronDefinition} instance, never {@code null}
-     */
-    private static CronDefinition spring53() {
-        return CronDefinitionBuilder.defineCron()
-                .withSeconds().withValidRange(0, 59).withStrictRange().and()
-                .withMinutes().withValidRange(0, 59).withStrictRange().and()
-                .withHours().withValidRange(0, 23).withStrictRange().and()
-                .withDayOfMonth().withValidRange(1, 31).supportsL().supportsW().supportsLW().supportsQuestionMark().and()
-                .withMonth().withValidRange(1, 12).and()
-                .withDayOfWeek().withValidRange(0, 7).withMondayDoWValue(1).withIntMapping(7,0)
-                .supportsHash().supportsL().supportsQuestionMark().and()
-                .withSupportedNicknameYearly().withSupportedNicknameAnnually()
-                .withSupportedNicknameMonthly()
-                .withSupportedNicknameWeekly()
-                .withSupportedNicknameDaily().withSupportedNicknameMidnight()
-                .withSupportedNicknameHourly()
-                .instance();
-    }
-
-    /**
-     * Creates CronDefinition instance matching unix crontab specification.
-     *
-     * @return CronDefinition instance, never null;
-     */
-    private static CronDefinition unixCrontab() {
-        return CronDefinitionBuilder.defineCron()
-                .withMinutes().withValidRange(0, 59).withStrictRange().and()
-                .withHours().withValidRange(0, 23).withStrictRange().and()
-                .withDayOfMonth().withValidRange(1, 31).withStrictRange().and()
-                .withMonth().withValidRange(1, 12).withStrictRange().and()
-                .withDayOfWeek().withValidRange(0, 7).withMondayDoWValue(1).withIntMapping(7, 0).withStrictRange().and()
-                .instance();
+        return new CronDefinition(
+                values,
+                new HashSet<>(cronConstraints),
+                new HashSet<>(cronNicknames),
+                matchDayOfWeekAndDayOfMonth);
     }
 
     /**
@@ -511,19 +254,6 @@ public class CronDefinitionBuilder {
      * @return CronDefinition instance if definition is found; a RuntimeException otherwise.
      */
     public static CronDefinition instanceDefinitionFor(final CronType cronType) {
-        switch (cronType) {
-            case CRON4J:
-                return cron4j();
-            case QUARTZ:
-                return quartz();
-            case UNIX:
-                return unixCrontab();
-            case SPRING:
-                return spring();
-            case SPRING53:
-                return spring53();
-            default:
-                throw new IllegalArgumentException(String.format("No cron definition found for %s", cronType));
-        }
+        return CronTypeDefinitionRegistry.getDefinition(cronType);
     }
 }

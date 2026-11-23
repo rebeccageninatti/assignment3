@@ -20,7 +20,8 @@ import com.cronutils.model.field.expression.QuestionMark;
 
 public class CronConstraintsFactory {
 
-    private CronConstraintsFactory() {/*HIDE*/}
+    private CronConstraintsFactory() {
+    }
 
     /**
      * Creates CronConstraint to ensure that either day-of-year or month is assigned a specific value.
@@ -32,38 +33,28 @@ public class CronConstraintsFactory {
             private static final long serialVersionUID = 520379111876897579L;
 
             @Override
-            public boolean validate(Cron cron) {
-                CronField dayOfYearField = cron.retrieve(CronFieldName.DAY_OF_YEAR);
-                if (dayOfYearField != null && !(dayOfYearField.getExpression() instanceof QuestionMark)) {
-                    return cron.retrieve(CronFieldName.DAY_OF_WEEK).getExpression() instanceof QuestionMark
-                            && cron.retrieve(CronFieldName.DAY_OF_MONTH).getExpression() instanceof QuestionMark;
-                }
-
-                return true;
+            public boolean validate(final Cron cron) {
+                return !isSpecified(cron.retrieve(CronFieldName.DAY_OF_YEAR))
+                        || (isQuestionMark(cron.retrieve(CronFieldName.DAY_OF_WEEK))
+                                && isQuestionMark(cron.retrieve(CronFieldName.DAY_OF_MONTH)));
             }
         };
     }
 
     public static CronConstraint ensureEitherDayOfWeekOrDayOfMonth() {
-        //Solves issue #63: https://github.com/jmrozanec/cron-utils/issues/63
-        //both a day-of-week AND a day-of-month parameter should fail for QUARTZ
+        // Solves issue #63: https://github.com/jmrozanec/cron-utils/issues/63
+        // both a day-of-week AND a day-of-month parameter should fail for QUARTZ
         return new CronConstraint("Both, a day-of-week AND a day-of-month parameter, are not supported.") {
             private static final long serialVersionUID = -4423693913868081656L;
 
             @Override
-            public boolean validate(Cron cron) {
-                CronField dayOfYearField = cron.retrieve(CronFieldName.DAY_OF_YEAR);
-                CronField dayOfMonthField = cron.retrieve(CronFieldName.DAY_OF_MONTH);
-                CronField dayOfWeekField = cron.retrieve(CronFieldName.DAY_OF_WEEK);
-                if (dayOfYearField == null || dayOfYearField.getExpression() instanceof QuestionMark) {
-                    if (dayOfMonthField != null && !(dayOfMonthField.getExpression() instanceof QuestionMark)) {
-                        return dayOfWeekField != null && dayOfWeekField.getExpression() instanceof QuestionMark;
-                    } else {
-                        return dayOfWeekField != null && !(dayOfWeekField.getExpression() instanceof QuestionMark);
-                    }
-                }
-
-                return true;
+            public boolean validate(final Cron cron) {
+                final CronField dayOfMonthField = cron.retrieve(CronFieldName.DAY_OF_MONTH);
+                final CronField dayOfWeekField = cron.retrieve(CronFieldName.DAY_OF_WEEK);
+                return isSpecified(cron.retrieve(CronFieldName.DAY_OF_YEAR))
+                        || (isSpecified(dayOfMonthField)
+                                ? isQuestionMark(dayOfWeekField)
+                                : isSpecified(dayOfWeekField));
             }
         };
     }
@@ -75,18 +66,23 @@ public class CronConstraintsFactory {
      * @return newly created CronConstraint instance, never {@code null};
      */
     public static CronConstraint ensureQuartzDayOfMonthAndDayOfWeekValidation() {
-        return new CronConstraint("Invalid cron expression: Both, a day-of-week AND a day-of-month parameter, must have at least one with a '?' character.") {
+        return new CronConstraint(
+                "Invalid cron expression: Both, a day-of-week AND a day-of-month parameter, must have at least one with a '?' character.") {
             private static final long serialVersionUID = 520379111876897580L;
 
             @Override
-            public boolean validate(Cron cron) {
-                final CronField dayOfMonthField = cron.retrieve(CronFieldName.DAY_OF_MONTH);
-                final CronField dayOfWeekField = cron.retrieve(CronFieldName.DAY_OF_WEEK);
-
-                // At least one of them must be a question mark
-                return (dayOfMonthField != null && dayOfMonthField.getExpression() instanceof QuestionMark) ||
-                       (dayOfWeekField != null && dayOfWeekField.getExpression() instanceof QuestionMark);
+            public boolean validate(final Cron cron) {
+                return isQuestionMark(cron.retrieve(CronFieldName.DAY_OF_MONTH))
+                        || isQuestionMark(cron.retrieve(CronFieldName.DAY_OF_WEEK));
             }
         };
+    }
+
+    private static boolean isQuestionMark(final CronField field) {
+        return field != null && field.getExpression() instanceof QuestionMark;
+    }
+
+    private static boolean isSpecified(final CronField field) {
+        return field != null && !(field.getExpression() instanceof QuestionMark);
     }
 }
